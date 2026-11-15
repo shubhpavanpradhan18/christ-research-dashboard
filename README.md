@@ -5,7 +5,7 @@ with Streamlit and powered entirely by the OpenAlex API. Nothing is hardcoded
 and no data file is committed — every number is fetched from the public API
 when the page loads.
 
-**Live app:** _paste your Streamlit Cloud URL here after deploying_
+**Live app:** https://christ-research-dashboard-anr6kuwdqug7puxq4go4ym.streamlit.app
 
 ---
 
