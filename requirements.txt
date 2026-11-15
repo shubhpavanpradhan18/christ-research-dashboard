@@ -1,0 +1,13 @@
+# Streamlit Community Cloud installs from this file into a clean environment.
+#
+# Minimum versions, not exact pins:
+#   streamlit >= 1.50  - the width="stretch" argument used throughout app.py
+#   plotly    >= 5.24  - rounded bar corners (marker.cornerradius)
+#
+# Pinning minimums rather than exact versions lets the deploy pick up security
+# patches, while still refusing a version too old to run this code.
+
+streamlit>=1.50
+requests>=2.31
+pandas>=2.0
+plotly>=5.24

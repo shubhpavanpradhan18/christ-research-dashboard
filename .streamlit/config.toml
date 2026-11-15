@@ -1,0 +1,20 @@
+# Streamlit theme.
+#
+# This file is read automatically when the app starts, both locally and on
+# Streamlit Community Cloud. It must sit in a folder named exactly
+# ".streamlit" next to app.py.
+#
+# A deliberate palette is one of the cheapest ways to make a student project
+# look finished. These are CHRIST's own blue and gold, which also makes the
+# dashboard feel like it belongs to the institution it reports on.
+
+[theme]
+primaryColor = "#1F4E79"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F5F9"
+textColor = "#1A1A1A"
+font = "sans serif"
+
+[server]
+# Stops Streamlit from asking for an email address on first run.
+headless = true

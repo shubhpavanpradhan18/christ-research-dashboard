@@ -1,0 +1,25 @@
+# Virtual environment - never commit this. It is hundreds of megabytes, it is
+# specific to your machine, and requirements.txt already records what it holds.
+.venv/
+venv/
+env/
+
+# Python bytecode cache
+__pycache__/
+*.py[cod]
+*.pyc
+
+# Streamlit secrets - THE IMPORTANT LINE.
+# config.toml (the theme) IS committed, because the deployed app needs it.
+# secrets.toml is NOT, because it holds your email address.
+.streamlit/secrets.toml
+
+# Editor and OS clutter
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Exported images, scratch files
+*.png.tmp
+scratch/
