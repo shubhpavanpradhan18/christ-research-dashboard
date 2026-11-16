@@ -228,3 +228,52 @@ def works_to_frame(works):
     frame["Year"] = pd.to_numeric(frame["Year"], errors="coerce").astype("Int64")
 
     return frame
+
+
+# ---------------------------------------------------------------------------
+# Year-over-year comparison (for the headline cards)
+# ---------------------------------------------------------------------------
+# The cards compare the last COMPLETE year in the window with the year before
+# it - say 2025 against 2024 - rather than the current year. The current year
+# is unfinished, so comparing it with a full year would always show a fall
+# that is not real.
+
+def comparison_years(year_from, year_to, current_year):
+    """
+    Return (last complete year, the year before it) inside the window,
+    or None when the window is too short to hold both.
+    """
+    latest = min(year_to, current_year - 1)
+    earlier = latest - 1
+    if earlier < year_from:
+        return None
+    return latest, earlier
+
+
+def value_for_year(frame, year, column):
+    """One cell from a year-indexed table, or None when that year is absent."""
+    if frame.empty or column not in frame.columns:
+        return None
+    row = frame[frame["year"] == year]
+    if row.empty:
+        return None
+    return row[column].iloc[0]
+
+
+def percent_change(current, previous):
+    """
+    The change from previous to current, as a percentage.
+
+    None when there is no fair comparison - a missing value, or a previous
+    value of zero, where any growth would be "infinite percent".
+    """
+    if current is None or previous is None or previous == 0:
+        return None
+    return round((current - previous) / previous * 100, 1)
+
+
+def cumulative_totals(trend):
+    """Running total of publications, year by year (for the growth story)."""
+    if trend.empty:
+        return []
+    return trend["publications"].cumsum().tolist()

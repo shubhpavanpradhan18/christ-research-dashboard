@@ -90,11 +90,29 @@ def _base_layout(fig, height=340, show_legend=False):
     return fig
 
 
+def _year_ticks(fig, years):
+    """
+    Label the year axis so it fits whatever width the chart is drawn at.
+
+    Forcing a label on every year looks fine on a laptop and collides on a
+    phone. So for longer spans Plotly picks the spacing itself, from the
+    chart's actual width. For six years or fewer every year is labelled
+    explicitly - left to itself on so short a range, Plotly can choose
+    half-year steps and print "2025" twice.
+    """
+    if not years:
+        return
+    if years[-1] - years[0] + 1 <= 6:
+        fig.update_xaxes(dtick=1, tickformat="d", tickangle=0)
+    else:
+        fig.update_xaxes(tickformat="d", tickangle=0)
+
+
 # ---------------------------------------------------------------------------
 # 1. Publications per year
 # ---------------------------------------------------------------------------
 
-def publications_trend(trend, current_year):
+def publications_trend(trend, current_year, title="Publications per year"):
     """
     Columns, one per year.
 
@@ -142,24 +160,27 @@ def publications_trend(trend, current_year):
         label_indices.add(peak_index)
 
     for index in sorted(label_indices):
-        suffix = " so far" if years[index] >= current_year else ""
+        # "so far" goes on its own line. On one line the label is wider than
+        # a column slot, and in a narrow card it spills over the taller bar
+        # beside it.
+        partial = years[index] >= current_year
         fig.add_annotation(
             x=years[index],
             y=values[index],
-            text=f"<b>{values[index]:,}</b>{suffix}",
+            text=f"<b>{values[index]:,}</b><br>so far" if partial else f"<b>{values[index]:,}</b>",
             showarrow=False,
-            yshift=14,
+            yshift=22 if partial else 14,
             font=dict(color=INK, size=12),
         )
 
     fig.update_layout(
         title=dict(
-            text="Publications per year",
+            text=title,
             font=dict(size=16, color="#0b0b0b"),
         ),
         bargap=0.38,
     )
-    fig.update_xaxes(dtick=1, tickangle=0)
+    _year_ticks(fig, years)
     # Under 10,000 the axis reads in full, with thousands separators.
     fig.update_yaxes(tickformat=",")
     return _base_layout(fig)
@@ -222,7 +243,7 @@ def citations_trend(trend):
             font=dict(size=16, color="#0b0b0b"),
         )
     )
-    fig.update_xaxes(dtick=1, tickangle=0)
+    _year_ticks(fig, years)
     return _base_layout(fig)
 
 
@@ -279,7 +300,11 @@ def field_bars(fields, title="Publications by research field"):
     # horizontal gridlines would otherwise run through every category row.
     height = max(200, 30 * len(labels) + 90)
     fig = _base_layout(fig, height=height)
-    fig.update_xaxes(visible=False, showgrid=False)
+    # The axis runs 20% past the longest bar, leaving room for its value
+    # label. Without it, in a narrow card the biggest number is cut off.
+    fig.update_xaxes(
+        visible=False, showgrid=False, range=[0, max(values) * 1.2]
+    )
     fig.update_yaxes(
         showgrid=False,
         tickfont=dict(color=INK, size=12),
@@ -341,7 +366,8 @@ def author_bars(authors):
     # it last would silently undo the overrides below.
     height = max(200, 30 * len(names) + 90)
     fig = _base_layout(fig, height=height)
-    fig.update_xaxes(visible=False, showgrid=False)
+    # Headroom past the longest bar for its value label, as in field_bars.
+    fig.update_xaxes(visible=False, showgrid=False, range=[0, max(values) * 1.2])
     fig.update_yaxes(
         showgrid=False, tickfont=dict(color=INK, size=12), automargin=True
     )
@@ -528,4 +554,152 @@ def open_access_bar(oa_frame):
     fig = _base_layout(fig, height=210, show_legend=True)
     fig.update_xaxes(visible=False, showgrid=False)
     fig.update_yaxes(visible=False, showgrid=False)
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 5. The growth story (animated)
+# ---------------------------------------------------------------------------
+
+def growth_animation(trend, current_year):
+    """
+    Publications per year, built up one year at a time when Play is pressed.
+
+    The chart RESTS on its complete final state. Anyone who never presses
+    Play still sees every year, so the animation adds a story without hiding
+    any data behind a button.
+
+    How Plotly animates:
+        - `data` is what the chart shows before anything is pressed
+        - `frames` is a list of alternative versions of that data, one per
+          year; frame k shows the bars up to year k and zero after it
+        - the Play button steps through the frames; the slider jumps to one
+
+    The y-axis range is fixed. Left to itself Plotly would rescale it on
+    every frame, and the bars would appear to shrink as later years arrive.
+    """
+    fig = go.Figure()
+
+    if trend.empty:
+        return _base_layout(fig)
+
+    years = trend["year"].tolist()
+    values = trend["publications"].tolist()
+    running = trend["publications"].cumsum().tolist()
+    colours = [BLUE_LIGHT if year >= current_year else BLUE for year in years]
+    ceiling = max(values) * 1.18
+
+    def caption(index):
+        """The running-total line shown above the bars in each frame."""
+        return (
+            f"<b>{years[index]}</b>  ·  {running[index]:,} papers "
+            f"published since {years[0]}"
+        )
+
+    def caption_annotation(index):
+        return dict(
+            x=0, y=1.0, xref="paper", yref="paper",
+            xanchor="left", yanchor="bottom",
+            text=caption(index), showarrow=False,
+            font=dict(color=INK, size=13),
+        )
+
+    fig.add_trace(
+        go.Bar(
+            x=years,
+            y=values,
+            # Square corners here, unlike the other bar charts. Plotly tweens
+            # a growing bar by morphing its outline, and a rounded outline
+            # morphing up from zero height passes through a teardrop shape.
+            marker=dict(color=colours, cornerradius=0),
+            width=0.62,
+            hovertemplate="<b>%{x}</b><br>%{y:,} publications<extra></extra>",
+            name="Publications",
+        )
+    )
+
+    fig.frames = [
+        go.Frame(
+            name=str(years[k]),
+            data=[go.Bar(y=[v if i <= k else 0 for i, v in enumerate(values)])],
+            layout=go.Layout(annotations=[caption_annotation(k)]),
+        )
+        for k in range(len(years))
+    ]
+
+    play = dict(
+        label="▶  Play",
+        method="animate",
+        args=[
+            None,
+            {
+                "frame": {"duration": 520, "redraw": True},
+                "transition": {"duration": 380, "easing": "cubic-in-out"},
+                "fromcurrent": False,
+                "mode": "immediate",
+            },
+        ],
+    )
+    pause = dict(
+        label="❚❚  Pause",
+        method="animate",
+        args=[
+            [None],
+            {"frame": {"duration": 0, "redraw": False}, "mode": "immediate",
+             "transition": {"duration": 0}},
+        ],
+    )
+
+    fig.update_layout(
+        title=dict(text="Publications, year by year", font=dict(size=16, color="#0b0b0b")),
+        annotations=[caption_annotation(len(years) - 1)],
+        bargap=0.38,
+        margin=dict(l=10, r=20, t=90, b=40),
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="left",
+                showactive=False,
+                x=1.0, y=1.24, xanchor="right", yanchor="top",
+                pad=dict(r=0, t=0),
+                bgcolor=SURFACE,
+                bordercolor=GRAY_QUIET,
+                font=dict(color=INK, size=12),
+                buttons=[play, pause],
+            )
+        ],
+        sliders=[
+            dict(
+                active=len(years) - 1,
+                x=0, y=-0.08, len=1.0, xanchor="left", yanchor="top",
+                pad=dict(t=30, b=0),
+                currentvalue=dict(visible=False),
+                tickcolor=GRAY_QUIET,
+                font=dict(color=INK_MUTED, size=11),
+                bgcolor=GRID,
+                activebgcolor=BLUE,
+                bordercolor=GRAY_QUIET,
+                steps=[
+                    dict(
+                        method="animate",
+                        label=str(year),
+                        args=[
+                            [str(year)],
+                            {"mode": "immediate",
+                             "frame": {"duration": 0, "redraw": True},
+                             "transition": {"duration": 0}},
+                        ],
+                    )
+                    for year in years
+                ],
+            )
+        ],
+    )
+
+    fig = _base_layout(fig, height=430)
+    fig.update_yaxes(range=[0, ceiling], autorange=False, tickformat=",")
+    # The slider underneath already names every year; a second row of year
+    # labels on the axis would only be clutter. Hovering a bar still says
+    # which year it is.
+    fig.update_xaxes(showticklabels=False)
     return fig

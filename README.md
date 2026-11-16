@@ -11,17 +11,18 @@ when the page loads.
 
 ## What it shows
 
-| Section | Contents |
+| Tab | Contents |
 |---|---|
-| **Headline figures** | Publications in the selected window, total citations, h-index, i10-index, open-access share |
-| **Trends** | Publications per year and citations received per year |
-| **Subject mix** | Publications by research field, and by publication type |
-| **People** | The most prolific authors |
-| **Papers** | Most-cited and most-recent papers, with DOI links |
+| **Headline cards** | Publications, citations, h-index, i10-index and open-access share, counting up on load, with year-over-year change (last complete year against the one before) |
+| **Overview** | Publications and citations per year, an animated "growth story" with Play and a year slider, research fields (subfields when one field is selected), open-access split |
+| **People and papers** | The most prolific authors, publication types, most-cited and most-recent papers with DOI links |
+| **Author spotlight** | Pick an author: profile, ORCID, topics, papers at CHRIST per year, their most-cited papers, career totals |
 | **Collaboration** | A world map of co-publishing countries, plus ranked partner institutions and countries |
+| **Search papers** | Live search across titles and abstracts, sortable by relevance, citations or date |
 
-A year-range filter in the sidebar scopes every chart on the page, and a
-**Refresh data now** button clears the cache and re-fetches from the API.
+Two filters in the sidebar - a year range and a research field - scope every
+chart, table and search on the page. Every table can be downloaded as CSV.
+A **Refresh data now** button clears the cache and re-fetches from the API.
 
 ---
 
@@ -30,7 +31,7 @@ A year-range filter in the sidebar scopes every chart on the page, and a
 [OpenAlex](https://openalex.org) is a free, open index of scholarly works,
 released under CC0. It requires **no API key and no authentication**.
 
-This dashboard reports on the Bangalore Central Campus record:
+This dashboard reports on the main CHRIST (Deemed to be University), Bangalore record:
 
 - OpenAlex ID: `I48018076`
 - ROR: [022tv9y30](https://ror.org/022tv9y30)
@@ -42,17 +43,24 @@ CHRIST's Delhi NCR campus is indexed by OpenAlex as a **separate institution**
 
 ## Architecture
 
-Five modules, each with one job. Only `openalex.py` touches the network, and
-only `app.py` touches Streamlit — so the data and chart layers can be tested
-from a plain Python script.
+Six modules, each with one job. Only `openalex.py` touches the network, and
+only `app.py` and `ui.py` touch Streamlit, so the data and chart layers can
+be tested from a plain Python script.
 
 ```
-config.py       every tunable value: institution, year defaults, cache TTL
-openalex.py     all API access. No pandas, no Streamlit
-transforms.py   raw JSON -> tidy DataFrames. No network
-charts.py       DataFrames -> Plotly figures. No network, no Streamlit
-app.py          layout, caching and filters. No data logic
+config.py        every tunable value: institution, year defaults, cache TTL
+openalex.py      all API access: filters, aggregation, search, author records
+transforms.py    raw JSON -> tidy DataFrames, year-over-year maths. No network
+charts.py        DataFrames -> Plotly figures, incl. the animation. No network
+ui.py            page chrome: banner, animated cards, headings, footer
+app.py           layout, caching and filters. No data logic
+assets/          style.css (the theme) and christ_logo.png (the logo)
 ```
+
+The logo is optional: save the official logo as `assets/christ_logo.png` and
+the app shows it in the banner, the sidebar and the browser tab. Without it,
+the app runs unchanged. The university's name and logo belong to the
+university; the footer states that this is a student project.
 
 Supporting scripts, kept because they document how the project was verified:
 
@@ -60,6 +68,7 @@ Supporting scripts, kept because they document how the project was verified:
 find_campus.py   lists every CHRIST record in OpenAlex (how I48018076 was found)
 verify_data.py   proves the data source exists and reports which aggregations work
 test_phase2.py   exercises the whole data layer end to end, with no Streamlit
+verify_phase_b.py  checks every request the Phase B features rely on
 ```
 
 ---
@@ -143,6 +152,16 @@ chart carries a legend so identity never rests on colour alone.
   about 13 years. Dragging the slider earlier than that affects the
   publications chart but not the citations chart; the app says so when it
   happens.
+- **Year-over-year change compares complete years only** - for example 2025
+  against 2024 - because the current year is unfinished and would always
+  look like a fall. Open access changes in percentage points, not percent.
+- **The research-field filter** narrows publications, open access, authors,
+  papers, collaboration and search. Citations, h-index and i10-index are
+  institution-wide figures in OpenAlex, so they do not change with it; their
+  cards say "whole institution" when a field is selected.
+- **Author career totals** (career papers, citations, h-index) cover the
+  author's whole career at every institution. Only "Papers at CHRIST" is
+  specific to this university.
 
 ---
 

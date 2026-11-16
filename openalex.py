@@ -121,7 +121,7 @@ def search_institutions(query, limit=5):
     return institutions
 
 
-def build_filter(institution_id, year_from=None, year_to=None):
+def build_filter(institution_id, year_from=None, year_to=None, extra=None):
     """
     Build the OpenAlex `filter` string.
 
@@ -130,6 +130,11 @@ def build_filter(institution_id, year_from=None, year_to=None):
 
         institutions.id:I123456,publication_year:2015-2026
 
+    `extra` adds more conditions on top - a research field, or one author:
+
+        institutions.id:I123456,publication_year:2015-2026,
+        primary_topic.field.id:17
+
     Keeping this in one function means every chart in the dashboard filters
     the data in exactly the same way - no accidental mismatches between
     "total publications" and "publications per year".
@@ -137,10 +142,27 @@ def build_filter(institution_id, year_from=None, year_to=None):
     parts = [f"institutions.id:{institution_id}"]
     if year_from and year_to:
         parts.append(f"publication_year:{year_from}-{year_to}")
+    if extra:
+        parts.extend(extra)
     return ",".join(parts)
 
 
-def count_works(institution_id, year_from=None, year_to=None):
+def field_filter(field_key):
+    """
+    The filter condition for one research field.
+
+    group_by hands back each field's key as a URL such as
+    "https://openalex.org/fields/17"; the filter wants the short id, "17".
+    """
+    return f"primary_topic.field.id:{_short_id(field_key)}"
+
+
+def author_filter(author_key):
+    """The filter condition for one author: authorships.author.id:A50..."""
+    return f"authorships.author.id:{_short_id(author_key)}"
+
+
+def count_works(institution_id, year_from=None, year_to=None, extra=None):
     """
     How many papers match our filter?
 
@@ -151,14 +173,15 @@ def count_works(institution_id, year_from=None, year_to=None):
     payload = _get(
         "works",
         {
-            "filter": build_filter(institution_id, year_from, year_to),
+            "filter": build_filter(institution_id, year_from, year_to, extra),
             "per_page": 1,
         },
     )
     return payload.get("meta", {}).get("count", 0)
 
 
-def group_works_by(institution_id, group_field, year_from=None, year_to=None):
+def group_works_by(institution_id, group_field, year_from=None, year_to=None,
+                   extra=None):
     """
     Ask OpenAlex to do the aggregation for us.
 
@@ -176,7 +199,7 @@ def group_works_by(institution_id, group_field, year_from=None, year_to=None):
     payload = _get(
         "works",
         {
-            "filter": build_filter(institution_id, year_from, year_to),
+            "filter": build_filter(institution_id, year_from, year_to, extra),
             "group_by": group_field,
         },
     )
@@ -232,6 +255,46 @@ def get_institution(institution_id):
     }
 
 
+def get_author(author_key):
+    """
+    Fetch one author's own record, for the Author Spotlight.
+
+    Note what these numbers cover: an author's works_count, citations and
+    h-index span their WHOLE career at every institution, not only their
+    time at CHRIST. The dashboard labels them as career totals for exactly
+    that reason.
+
+    OpenAlex renamed last_known_institution (one) to last_known_institutions
+    (a list); both spellings are read so either schema works.
+    """
+    payload = _get(f"authors/{_short_id(author_key)}", {})
+    stats = payload.get("summary_stats") or {}
+
+    places = payload.get("last_known_institutions")
+    if places is None:
+        single = payload.get("last_known_institution")
+        places = [single] if single else []
+
+    topics = [
+        topic.get("display_name")
+        for topic in (payload.get("topics") or [])[:5]
+        if topic.get("display_name")
+    ]
+
+    return {
+        "id": _short_id(payload.get("id")),
+        "name": payload.get("display_name"),
+        "orcid": payload.get("orcid"),
+        "works_count": payload.get("works_count", 0),
+        "cited_by_count": payload.get("cited_by_count", 0),
+        "h_index": stats.get("h_index", 0),
+        "i10_index": stats.get("i10_index", 0),
+        "institutions": [p.get("display_name") for p in places if p and p.get("display_name")],
+        "topics": topics,
+        "url": payload.get("id"),
+    }
+
+
 # Fields we ask OpenAlex to return for individual papers.
 # Requesting only what we display keeps the response small and the app fast -
 # without this, each paper carries a very large block of metadata we ignore.
@@ -241,15 +304,31 @@ _WORK_FIELDS = (
 )
 
 
+def _get_works_with_select(params):
+    """
+    Request works with a `select` list, falling back to the full record.
+
+    If OpenAlex rejects our `select` list (for instance after a schema change
+    renames a field), retry without it rather than letting the whole
+    dashboard fail over a performance tweak.
+    """
+    try:
+        return _get("works", params)
+    except requests.HTTPError:
+        params = dict(params)
+        params.pop("select", None)
+        return _get("works", params)
+
+
 def fetch_top_works(institution_id, year_from=None, year_to=None,
-                    sort_by="cited_by_count:desc", limit=25):
+                    sort_by="cited_by_count:desc", limit=25, extra=None):
     """
     Download a SMALL number of individual papers.
 
     Design note worth remembering for the viva:
         CHRIST has over 20,000 indexed papers. We never download them all.
         Every aggregate number in this dashboard comes from `group_by`, which
-        the server computes. We only download individual records for the two
+        the server computes. We only download individual records for the
         tables that actually list papers - about 25 rows each.
 
         That is why there is no pagination code in this project. We do not
@@ -259,20 +338,38 @@ def fetch_top_works(institution_id, year_from=None, year_to=None,
         "cited_by_count:desc"   -> most influential papers
         "publication_date:desc" -> newest papers
     """
+    payload = _get_works_with_select(
+        {
+            "filter": build_filter(institution_id, year_from, year_to, extra),
+            "sort": sort_by,
+            "per_page": min(limit, 200),
+            "select": _WORK_FIELDS,
+        }
+    )
+    return payload.get("results", [])
+
+
+def search_works(institution_id, query, year_from=None, year_to=None,
+                 extra=None, sort_by=None, limit=25):
+    """
+    Full-text search, restricted to CHRIST's own papers.
+
+    OpenAlex's `search` parameter matches the words against each paper's
+    title and abstract, and it combines with `filter` - so the same call that
+    searches also applies the institution, the year window and any field.
+
+    With no sort_by, results come back in relevance order: the best match
+    first. Returns (total number of matches, the first `limit` papers).
+    """
     params = {
-        "filter": build_filter(institution_id, year_from, year_to),
-        "sort": sort_by,
+        "search": query,
+        "filter": build_filter(institution_id, year_from, year_to, extra),
         "per_page": min(limit, 200),
         "select": _WORK_FIELDS,
     }
+    if sort_by:
+        params["sort"] = sort_by
 
-    try:
-        payload = _get("works", params)
-    except requests.HTTPError:
-        # If OpenAlex rejects our `select` list (for instance after a schema
-        # change renames a field), fall back to requesting everything rather
-        # than letting the whole dashboard fail over a performance tweak.
-        params.pop("select")
-        payload = _get("works", params)
-
-    return payload.get("results", [])
+    payload = _get_works_with_select(params)
+    total = payload.get("meta", {}).get("count", 0)
+    return total, payload.get("results", [])
