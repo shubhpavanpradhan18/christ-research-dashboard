@@ -14,6 +14,7 @@ project is split this way, and it is a good answer if the viva asks why you
 did not just write one long script.
 """
 
+import math
 import re
 
 import pandas as pd
@@ -277,3 +278,82 @@ def cumulative_totals(trend):
     if trend.empty:
         return []
     return trend["publications"].cumsum().tolist()
+
+
+
+# ---------------------------------------------------------------------------
+# Is a change real, or just noise?
+# ---------------------------------------------------------------------------
+# A percentage change says how BIG a change is. It says nothing about whether
+# it is REAL. Going from 22 papers to 34 is "+54.5%", yet a field that small
+# swings that much from year to year by chance alone.
+#
+# Two guards, applied in order:
+#
+#   1. A minimum sample. Below it (config.MIN_PAPERS_FOR_CHANGE) the card
+#      shows no percentage at all, only "too few papers to compare".
+#
+#   2. A significance test. Above the minimum, a z-test asks: if nothing had
+#      really changed, how surprising would a difference this large be?
+#      |z| >= 1.96 means a chance difference that large happens less than 5%
+#      of the time, the usual 95% standard. Below that, the card still shows
+#      the change, but in grey and labelled "likely noise".
+
+Z_95 = 1.96
+
+
+def enough_papers(now, before, minimum):
+    """True when both years have at least `minimum` papers to compare."""
+    return now is not None and before is not None and now >= minimum and before >= minimum
+
+
+def count_change_z(now, before):
+    """
+    z-score for the change between two yearly paper COUNTS.
+
+    Papers arriving in a year are modelled as a Poisson process, where the
+    variance of a count equals the count itself. The variance of the
+    difference (now - before) is therefore now + before, and
+
+        z = (now - before) / sqrt(now + before)
+
+    This is the standard normal approximation for comparing two Poisson
+    counts over equal time periods (one year each), and it is reliable once
+    both counts are around 30 or more, which the minimum-sample guard ensures.
+    """
+    if now is None or before is None or now + before == 0:
+        return None
+    return (now - before) / math.sqrt(now + before)
+
+
+def proportion_change_z(open_now, total_now, open_before, total_before):
+    """
+    z-score for the change between two SHARES - the two-proportion z-test.
+
+    p1 = open_now / total_now,  p2 = open_before / total_before
+    Under "nothing changed", both years share one pooled rate p, and the
+    standard error of p1 - p2 is sqrt(p (1 - p) (1/n1 + 1/n2)).
+
+        z = (p1 - p2) / standard error
+    """
+    if not total_now or not total_before:
+        return None
+    pooled = (open_now + open_before) / (total_now + total_before)
+    spread = math.sqrt(pooled * (1 - pooled) * (1 / total_now + 1 / total_before))
+    if spread == 0:
+        return None
+    return (open_now / total_now - open_before / total_before) / spread
+
+
+def is_significant(z):
+    """True when the change would be surprising by chance alone, at 95%."""
+    return z is not None and abs(z) >= Z_95
+
+
+def open_and_total(oa_frame):
+    """(papers that are open access, all papers) from an open-access split."""
+    if oa_frame.empty:
+        return 0, 0
+    total = int(oa_frame["publications"].sum())
+    open_rows = oa_frame[oa_frame["access"] == "Open access"]
+    return int(open_rows["publications"].sum()), total

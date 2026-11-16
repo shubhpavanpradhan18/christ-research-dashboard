@@ -351,28 +351,111 @@ oa_share = transforms.open_access_percentage(oa_frame)
 
 # Year-over-year: the last COMPLETE year against the one before it. Never the
 # current year - it is unfinished, so it would always look like a fall.
-pub_delta = cite_delta = oa_delta = None
-delta_note = ""
+#
+# Each change then passes two guards before it is shown as a real change
+# (see transforms.py for the statistics):
+#   1. both years need at least MIN_PAPERS papers, or no percentage is shown
+#   2. a z-test decides whether the change is likely real (green or red) or
+#      could easily be chance (grey, "likely noise")
+
+MIN_PAPERS = config.MIN_PAPERS_FOR_CHANGE
+
+
+def as_int(value):
+    """Counts from pandas arrive as numpy integers; make them plain ints."""
+    return None if value is None else int(value)
+
+
+def count_change(now, before, note):
+    """Card fields describing the change between two yearly paper counts."""
+    if now is None or before is None:
+        return {}
+    if not transforms.enough_papers(now, before, MIN_PAPERS):
+        return {
+            "delta_hint": f"too few papers to compare ({now:,} vs {before:,})",
+            "delta_test": (
+                f"{note}: fewer than {MIN_PAPERS} papers in a year, so a "
+                "percentage change would mostly be noise."
+            ),
+        }
+    z = transforms.count_change_z(now, before)
+    return {
+        "delta": transforms.percent_change(now, before),
+        "delta_note": note,
+        "delta_significant": transforms.is_significant(z),
+        "delta_test": (
+            f"{now:,} vs {before:,} papers ({note}). Poisson z = {z:+.2f}. "
+            "A |z| of 1.96 or more means a change this large would happen "
+            "by chance less than 5% of the time."
+        ),
+    }
+
+
+def share_change(open_now, total_now, open_before, total_before, note):
+    """Card fields describing the change in the open-access share."""
+    if not total_now or not total_before:
+        return {}
+    if not transforms.enough_papers(total_now, total_before, MIN_PAPERS):
+        return {
+            "delta_hint": f"too few papers to compare ({total_now:,} vs {total_before:,})",
+            "delta_test": (
+                f"{note}: fewer than {MIN_PAPERS} papers in a year, so the "
+                "share would swing by several points per paper."
+            ),
+        }
+    share_now = open_now / total_now * 100
+    share_before = open_before / total_before * 100
+    z = transforms.proportion_change_z(open_now, total_now, open_before, total_before)
+    return {
+        # Open access is already a percentage, so its change is measured in
+        # percentage POINTS (41% -> 44% is +3 pts), not a percent of a percent.
+        "delta": round(share_now - share_before, 1),
+        "delta_unit": " pts",
+        "delta_note": note,
+        "delta_significant": transforms.is_significant(z),
+        "delta_test": (
+            f"{share_now:.1f}% of {total_now:,} vs {share_before:.1f}% of "
+            f"{total_before:,} papers ({note}). Two-proportion z = {z:+.2f}. "
+            "Note: many papers become open access months after publication, "
+            "so the latest year tends to understate its final share."
+        ),
+    }
+
+
+pub_change = cite_change = oa_change = {}
 pair = transforms.comparison_years(year_from, year_to, current_year)
 if pair:
     latest, earlier = pair
-    delta_note = f"{latest} vs {earlier}"
-    pub_delta = transforms.percent_change(
-        transforms.value_for_year(publication_trend, latest, "publications"),
-        transforms.value_for_year(publication_trend, earlier, "publications"),
+    note = f"{latest} vs {earlier}"
+
+    pub_change = count_change(
+        as_int(transforms.value_for_year(publication_trend, latest, "publications")),
+        as_int(transforms.value_for_year(publication_trend, earlier, "publications")),
+        note,
     )
-    cite_delta = transforms.percent_change(
-        transforms.value_for_year(citation_trend, latest, "citations"),
-        transforms.value_for_year(citation_trend, earlier, "citations"),
-    )
-    # Open access is already a percentage, so its change is measured in
-    # percentage POINTS (41% -> 44% is +3 pts), not as a percent of a percent.
-    oa_latest = transforms.open_access_percentage(transforms.open_access_split(
+
+    # Citations get the size of the change but no significance test. The
+    # Poisson test assumes independent events of similar size; citations
+    # cluster heavily on a few famous papers, so it would overstate its
+    # confidence. Saying "not tested" is more honest than a misleading test.
+    cites_now = transforms.value_for_year(citation_trend, latest, "citations")
+    cites_before = transforms.value_for_year(citation_trend, earlier, "citations")
+    if cites_now is not None and cites_before is not None:
+        cite_change = {
+            "delta": transforms.percent_change(cites_now, cites_before),
+            "delta_note": note,
+            "delta_test": (
+                f"Citations received in {latest} vs {earlier}, whole institution. "
+                "Not significance-tested: citations concentrate on a few "
+                "highly cited papers, which breaks the test's assumptions."
+            ),
+        }
+
+    open_now, total_now = transforms.open_and_total(transforms.open_access_split(
         load_group("open_access.is_oa", latest, latest, field_extra)))
-    oa_earlier = transforms.open_access_percentage(transforms.open_access_split(
+    open_before, total_before = transforms.open_and_total(transforms.open_access_split(
         load_group("open_access.is_oa", earlier, earlier, field_extra)))
-    if oa_latest and oa_earlier:
-        oa_delta = round(oa_latest - oa_earlier, 1)
+    oa_change = share_change(open_now, total_now, open_before, total_before, note)
 
 # When a field is selected, the publication and open-access cards follow it,
 # but citations, h-index and i10-index are institution-wide figures from
@@ -384,8 +467,7 @@ ui.kpi_row(
         {
             "label": "Publications",
             "value": windowed_papers,
-            "delta": pub_delta,
-            "delta_note": delta_note,
+            **pub_change,
             "caption": (
                 f"in {chosen_field}" if field_active
                 else f"{institution['works_count']:,} all-time"
@@ -395,8 +477,7 @@ ui.kpi_row(
         {
             "label": "Citations",
             "value": institution["cited_by_count"],
-            "delta": cite_delta,
-            "delta_note": delta_note,
+            **cite_change,
             "caption": WHOLE if field_active else "across all publications",
             "help": "Total citations received, all years.",
         },
@@ -420,11 +501,13 @@ ui.kpi_row(
             "value": oa_share,
             "decimals": 1,
             "suffix": "%",
-            "delta": oa_delta,
-            "delta_unit": " pts",
-            "delta_note": delta_note,
+            **oa_change,
             "caption": "freely readable",
-            "help": "Share of papers in this window that are freely readable.",
+            "help": (
+                "Share of papers in this window that are freely readable. "
+                "Recent papers often become open access months later, so "
+                "recent years can understate it."
+            ),
         },
     ]
 )
@@ -434,7 +517,8 @@ if year_to >= current_year:
     ui.note(
         f"{current_year} is still in progress, so its totals are incomplete "
         "and will keep rising until the year ends. Year-over-year changes "
-        f"compare complete years only."
+        "compare complete years only; a grey change is within normal "
+        "year-to-year variation. Hover a change to see the test behind it."
     )
 
 

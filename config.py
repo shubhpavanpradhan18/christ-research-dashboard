@@ -50,4 +50,11 @@ CACHE_TTL_SECONDS = 60 * 60
 # ---------------------------------------------------------------------------
 
 TOP_N = 15          # how many bars in the "top authors" / "top partners" charts
+
+# Below this many papers in either year, the headline cards show no
+# year-over-year percentage at all. With 30 papers a single paper moves a
+# count by 3% and a share by 3 points; much below that, the "change" is
+# mostly noise. 30 is also roughly where the normal approximation behind the
+# significance test (transforms.count_change_z) becomes reliable.
+MIN_PAPERS_FOR_CHANGE = 30
 TOP_PAPERS = 25     # how many rows in the most-cited papers table

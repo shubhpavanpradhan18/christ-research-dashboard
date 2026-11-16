@@ -155,6 +155,17 @@ chart carries a legend so identity never rests on colour alone.
 - **Year-over-year change compares complete years only** - for example 2025
   against 2024 - because the current year is unfinished and would always
   look like a fall. Open access changes in percentage points, not percent.
+- **Year-over-year changes are tested before they are coloured.** Below 30
+  papers in either year no percentage is shown at all ("too few papers to
+  compare"). Above that, paper counts use a Poisson z-test and open-access
+  shares a two-proportion z-test: a change is green or red only when |z| is
+  at least 1.96, the 95% level. Anything smaller is shown in grey as "likely
+  noise". Citations show their change but are not tested, because citations
+  concentrate on a few highly cited papers, which breaks the test's
+  assumptions. Hovering any change shows the numbers and the test.
+- **Recent open-access shares are understated.** Many papers become freely
+  readable months after publication, so the latest year's share tends to
+  rise later.
 - **The research-field filter** narrows publications, open access, authors,
   papers, collaboration and search. Citations, h-index and i10-index are
   institution-wide figures in OpenAlex, so they do not change with it; their

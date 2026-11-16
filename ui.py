@@ -241,25 +241,51 @@ _COUNT_UP_SCRIPT = """
 
 def _delta_html(card):
     """
-    The small "▲ 4.9% · 2025 vs 2024" line under a card's number.
+    The small line under a card's number, in one of four states:
+
+        ▲ 4.9%  2025 vs 2024                 a real rise    (green)
+        ▼ 3.1 pts  2025 vs 2024              a real fall    (red)
+        ▲ 14.3%  2025 vs 2024 · likely noise  too small to call (grey)
+        — too few papers to compare (12 vs 9)               (grey)
 
     The arrow carries the direction, so it still reads for someone who
     cannot tell red from green: colour is a second signal, not the only one.
+    Hovering the line shows the statistics behind it.
     """
     delta = card.get("delta")
+    hint = card.get("delta_hint")
+    test = html.escape(card.get("delta_test", ""))
+
     if delta is None:
-        return ""
+        if not hint:
+            return ""
+        return f'<div class="kpi-delta muted" title="{test}">— {html.escape(hint)}</div>'
+
     unit = card.get("delta_unit", "%")
+    note = card.get("delta_note", "")
+
     if abs(delta) < 0.05:
         direction, arrow = "flat", "●"
     elif delta > 0:
         direction, arrow = "up", "▲"
     else:
         direction, arrow = "down", "▼"
-    note = card.get("delta_note", "")
+
+    # A change the significance test cannot tell apart from chance keeps its
+    # arrow and number, but loses its colour: green and red are reserved for
+    # changes that are probably real.
+    tag = ""
+    if card.get("delta_significant") is False:
+        direction = "noise"
+        tag = "<span>· likely noise</span>"
+
+    # Each phrase sits in its own span, and the CSS stops a span from
+    # breaking, so a narrow card wraps BETWEEN phrases ("2025 vs 2024" /
+    # "· likely noise") instead of in the middle of one.
     return (
-        f'<div class="kpi-delta {direction}">{arrow} {abs(delta):,.1f}{html.escape(unit)}'
-        f'<span>{html.escape(note)}</span></div>'
+        f'<div class="kpi-delta {direction}" title="{test}">'
+        f'<span class="kpi-delta-value">{arrow} {abs(delta):,.1f}{html.escape(unit)}</span>'
+        f"<span>{html.escape(note)}</span>{tag}</div>"
     )
 
 
@@ -277,6 +303,9 @@ def kpi_row(cards):
         delta       4.9          (optional: change against an earlier period)
         delta_unit  "%" or " pts" (optional, default "%")
         delta_note  "2025 vs 2024"
+        delta_significant  True / False / None   (None = not tested)
+        delta_hint  shown instead of a change, e.g. "too few papers"
+        delta_test  tooltip text explaining the statistics
     """
     # A stable id derived from the numbers themselves. When a filter changes
     # the numbers, the id changes too, the block is re-rendered, and the

@@ -228,14 +228,36 @@
 }
 
 .kpi-delta span {
+  display: inline-block;
+  white-space: nowrap;
   margin-left: 6px;
   font-weight: 400;
   color: var(--ink-3);
 }
 
-.kpi-delta.up   { color: #1b7f4a; }
-.kpi-delta.down { color: #b42318; }
-.kpi-delta.flat { color: var(--ink-2); }
+/* The arrow and number keep the card's colour and weight. */
+.kpi-delta .kpi-delta-value {
+  margin-left: 0;
+  font-weight: 700;
+  color: inherit;
+}
+
+.kpi-delta.up    { color: #1b7f4a; }
+.kpi-delta.down  { color: #b42318; }
+.kpi-delta.flat  { color: var(--ink-2); }
+
+/* Probably chance: keep the number, drop the colour. */
+.kpi-delta.noise { color: var(--ink-3); }
+
+/* Too few papers: no number at all, just a quiet explanation. */
+.kpi-delta.muted {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.kpi-delta[title]:not([title=""]) {
+  cursor: help;
+}
 
 /* --- Author spotlight ---------------------------------------------------- */
 
